@@ -128,7 +128,8 @@ test('sandbox certificates are allowed only by allowSandbox: true itself', async
 });
 
 test('what is reported comes from the signed bytes, not from the object passed in', async () => {
-  // An object whose freshness.stale reads true once (when it is signed over) and false afterwards.
+  // An object whose freshness.stale reads false the first time (the value that was signed) and true
+  // on every later read. The result must carry the signed value, from one single read.
   const [c] = loadCases('sandbox-cases.json');
   let reads = 0;
   const freshness = { ...c.certificate.freshness };

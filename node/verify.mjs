@@ -1,4 +1,4 @@
-// Offline check of an Apier certificate against a JSON Web Key Set the caller supplies.
+// Offline check of an Apier certificate. The caller supplies the key set (JWKS) to check against.
 // Node 20+, node:crypto only. Nothing here opens a network connection or reads a file.
 import { createHash, createPublicKey, verify as cryptoVerify } from 'node:crypto';
 
@@ -28,7 +28,7 @@ const own = (object, key) => (Object.hasOwn(object, key) ? object[key] : undefin
 const isIndexKey = (k) => INDEX_KEY.test(k) && Number(k) < 4294967295;
 const isSandboxKey = (jwk) => own(jwk, 'kid') === SANDBOX_KID || Object.hasOwn(jwk, 'apier_sandbox');
 const isRetired = (jwk) => ![undefined, null, ''].includes(own(jwk, 'apier_retired_at'));
-// Any `apier_compromised_at` member marks the key, whether or not its value can be read.
+// The member's presence is the mark. Its value is not read, so null or an unreadable date counts too.
 const isCompromised = (jwk) => Object.hasOwn(jwk, 'apier_compromised_at');
 // A stack overflow says nothing about the input, so it is passed on instead of being read as a refusal.
 const rethrowOverflow = (error) => {
@@ -329,7 +329,7 @@ export async function checkCertificate(cert, options) {
   // Production certificates are RS256 and sandbox certificates EdDSA. `none` is never accepted.
   if (alg !== (sandboxCertificate ? 'EdDSA' : 'RS256')) failed.add('alg_not_allowed');
   if (typ !== CERTIFICATE_TYP || !knownAlg) {
-    // The check stops before any key is looked up. A header naming the sandbox key is still labelled.
+    // No key lookup and no signature check in this case. A header naming the sandbox key is still labelled.
     if (kid === SANDBOX_KID) findings.signing_key = findings.environment = 'sandbox';
     return finish();
   }
@@ -337,7 +337,7 @@ export async function checkCertificate(cert, options) {
   // Keys come only from the key set the caller passed, never from the certificate's own jwks_uri.
   let keys = readKeys(jwks);
   if (keyHistory !== null && keyHistory !== undefined && verifyKeyHistory(keyHistory, { keys })) keys = withKeyHistoryMarks(keys, keyHistory);
-  const jwk = kid === null ? undefined : keys.find((k) => own(k, 'kid') === kid && keyFits(k, alg));
+  const jwk = keys.find((k) => kid !== null && own(k, 'kid') === kid && keyFits(k, alg));
   const key = jwk === undefined ? null : importKey(jwk, alg);
   if (key === null) {
     findings.signing_key = 'unknown';
@@ -345,9 +345,13 @@ export async function checkCertificate(cert, options) {
     return finish('unknown_kid');
   }
   result.kid = kid;
-  const sandboxKey = isSandboxKey(jwk);
-  const compromised = !sandboxKey && isCompromised(jwk);
-  findings.signing_key = sandboxKey ? 'sandbox' : compromised ? 'revoked' : isRetired(jwk) ? 'retired' : 'current';
+  // The same key can be listed twice, for example when a cached key set and a fresh one are merged.
+  // A mark on any entry with this kid and this key material counts.
+  const thumbprint = jwkThumbprint(jwk);
+  const entries = keys.filter((k) => own(k, 'kid') === kid && jwkThumbprint(k) === thumbprint);
+  const sandboxKey = entries.some(isSandboxKey);
+  const compromised = !sandboxKey && entries.some(isCompromised);
+  findings.signing_key = sandboxKey ? 'sandbox' : compromised ? 'revoked' : entries.some(isRetired) ? 'retired' : 'current';
   // A sandbox certificate is only ever checked against a sandbox key, a production one never.
   if (sandboxKey !== sandboxCertificate) failed.add('unknown_kid');
   // A leaked key can sign any date, so the certificate's own issued_at proves nothing: always refused.

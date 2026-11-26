@@ -59,7 +59,7 @@ apier-receipt-verify <certificate.json | -> [--sandbox] [--jwks <file|url>] [--k
 - `--sandbox` uses the sandbox key set and allows sandbox certificates.
 - `--jwks <file|url>` names the key set. The default is `https://www.apier.no/.well-known/jwks.json`. With a file, nothing is fetched and the check runs with no network.
 - `--key-history <file|url>` adds Apier's signed key history (see "Key states" below).
-- `--json` prints the result object.
+- `--json` prints the result object. The Node command line names its members `isSandbox` and `issuedAt`; the Python one names them `is_sandbox` and `issued_at`.
 
 The exit code is 0 when the reason is `none`, 1 when a reason is set, and 2 on a usage or network error. The Python file takes the same arguments: `python python/apier_receipt_verify.py cert.json --jwks jwks.json`.
 
@@ -109,8 +109,8 @@ The findings have the same names and values as the first four findings of Apier'
 
 | Finding | Value | Meaning |
 |---|---|---|
-| `signature` | `matches` | The signature is over exactly this content, under the key the header names. |
-| | `does_not_match` | The content or the signature was changed, or another key signed it. |
+| `signature` | `matches` | The certificate is byte for byte what the key named in the header signed. |
+| | `does_not_match` | Something in the certificate or in the signature differs from what was signed, or a different key signed it. |
 | | `could_not_be_checked` | The check stopped before a signature could be checked: unreadable header, wrong `typ`, unsupported algorithm or unknown key. |
 | `signing_key` | `current`, `retired` | A production key. A retired key still checks the certificates it signed. |
 | | `revoked` | The key is marked as leaked. |
@@ -145,7 +145,7 @@ A key set saved before a key was retired or marked does not carry the mark. The 
 
 ## What this does not prove
 
-A matching signature shows that Apier signed this content and that it has not changed since. It does not show that the register says the same today, and it is not a legal conclusion: Apier's results are the register's own coding, passed on without interpretation. It does not show internal authority, board resolutions or authority that follows from a position (stillingsfullmakt). It is not AML or PEP screening and does not replace either.
+A matching signature tells you that an Apier key signed this certificate and that nothing in it was altered afterwards. It does not tell you that the register says the same today, and it is not a legal conclusion: Apier's results are the register's own coding, passed on without interpretation. Who inside the company may decide what is outside that coding: styrevedtak, internal mandates and the authority that comes with a position (stillingsfullmakt) are not in a certificate. It is not AML or PEP screening and does not replace either.
 
 This verifier also leaves out three things that Apier's own check reports: whether the receipt is in the public receipt log, whether a daily anchor covers it, and the warning for a certificate dated after its key was retired. The first two need the network. Use https://www.apier.no/receipt-check for them.
 

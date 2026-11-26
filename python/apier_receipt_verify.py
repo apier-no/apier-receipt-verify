@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline check of an Apier certificate against a JSON Web Key Set the caller supplies.
+"""Offline check of an Apier certificate. The caller supplies the key set (JWKS) to check against.
 
 Python 3.9+, standard library only. check_certificate() never opens a network connection or reads
 a file; only the command line at the bottom of this file does.
@@ -199,7 +199,7 @@ def _is_retired(jwk):
 
 
 def _is_compromised(jwk):
-    # Any `apier_compromised_at` member marks the key, whether or not its value can be read.
+    # The member's presence is the mark. Its value is not read, so null or an unreadable date counts too.
     return "apier_compromised_at" in jwk
 
 
@@ -506,7 +506,7 @@ def check_certificate(cert, jwks, key_history=None, allow_sandbox=False, now=Non
     if alg != ("EdDSA" if sandbox_certificate else "RS256"):
         failed.add("alg_not_allowed")
     if typ != CERTIFICATE_TYP or not known_alg:
-        # The check stops before any key is looked up. A header naming the sandbox key is still labelled.
+        # No key lookup and no signature check in this case. A header naming the sandbox key is still labelled.
         if kid == SANDBOX_KID:
             findings["signing_key"] = findings["environment"] = "sandbox"
         return finish()
@@ -523,14 +523,18 @@ def check_certificate(cert, jwks, key_history=None, allow_sandbox=False, now=Non
             findings["environment"] = "sandbox"
         return finish("unknown_kid")
     result["kid"] = kid
-    sandbox_key = _is_sandbox_key(jwk)
-    compromised = not sandbox_key and _is_compromised(jwk)
+    # The same key can be listed twice, for example when a cached key set and a fresh one are merged.
+    # A mark on any entry with this kid and this key material counts.
+    thumbprint = jwk_thumbprint(jwk)
+    entries = [k for k in keys if k.get("kid") == kid and jwk_thumbprint(k) == thumbprint]
+    sandbox_key = any(_is_sandbox_key(k) for k in entries)
+    compromised = not sandbox_key and any(_is_compromised(k) for k in entries)
     if sandbox_key:
         findings["signing_key"] = "sandbox"
     elif compromised:
         findings["signing_key"] = "revoked"
     else:
-        findings["signing_key"] = "retired" if _is_retired(jwk) else "current"
+        findings["signing_key"] = "retired" if any(_is_retired(k) for k in entries) else "current"
     # A sandbox certificate is only ever checked against a sandbox key, a production one never.
     if sandbox_key != sandbox_certificate:
         failed.add("unknown_kid")
