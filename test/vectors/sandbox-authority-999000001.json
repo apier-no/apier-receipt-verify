@@ -1,0 +1,49 @@
+{
+  "result": {
+    "org_number": "999000001",
+    "name": "Sandbox AS",
+    "entity_type": "AS",
+    "classification": "sole",
+    "summary": "Én rolle kan signere alene for selskapet.",
+    "kombinasjon_available": true,
+    "combinations": [
+      {
+        "kombinasjons_id": "SANDBOX-KOMB-DAGL-ALENE",
+        "description": "Daglig leder signerer alene.",
+        "role_codes": [
+          "DAGL"
+        ]
+      }
+    ],
+    "signaturrett_holders": [
+      {
+        "role": "DAGL",
+        "name": "Ola Nordmann"
+      }
+    ],
+    "prokura_holders": [],
+    "data_sources": [
+      "brreg",
+      "fullmakttjenesten"
+    ],
+    "resolved_at": "2026-01-01T09:00:00+01:00",
+    "country": "NO",
+    "source": "brreg.fullmakt",
+    "rule_set": "no.brreg.signatur.v1",
+    "rule_set_version": "1.0.0",
+    "software_version": "680ac1e"
+  },
+  "issuer": "https://www.apier.no",
+  "issued_at": "2026-01-01T09:00:00+01:00",
+  "kid": "apier-sandbox-cert-1",
+  "jwks_uri": "https://www.apier.no/.well-known/sandbox-jwks.json",
+  "rulebook_version": "sandbox",
+  "audit_log_ref": "sha256:f9f380b9e2ea10884aa581c3823bc787dd28b6dc2cb9d1a62ab7a8c378db5aa1",
+  "is_sandbox": true,
+  "freshness": {
+    "retrieved_at": "2026-01-01T00:00:00+01:00",
+    "served_from": "static",
+    "stale": false
+  },
+  "signature": "eyJhbGciOiJFZERTQSIsImtpZCI6ImFwaWVyLXNhbmRib3gtY2VydC0xIiwidHlwIjoiYXBpZXItdmVyaWZ5LWNlcnQrandzIn0..Tv-NSG2dXR4o_Vhg9eciZFFh6jUJa5GVCB-__bRZGdRrw6uBu71-3c0QVjfujTiHpDKmg4VRSJxOZpZG3sL3BQ"
+}

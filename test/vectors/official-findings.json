@@ -1,0 +1,73 @@
+{
+  "note": "Findings answered by POST https://www.apier.no/api/v1/public/receipts/verify for each vector, recorded 2026-11-26. Only the four findings this verifier reports are kept.",
+  "check_version": "1",
+  "recorded_at": "2026-11-26",
+  "vectors": {
+    "sandbox-verify-999000001": {
+      "signature": "matches",
+      "signing_key": "sandbox",
+      "environment": "sandbox",
+      "format_version": "recognised"
+    },
+    "sandbox-authority-999000001": {
+      "signature": "matches",
+      "signing_key": "sandbox",
+      "environment": "sandbox",
+      "format_version": "recognised"
+    },
+    "sandbox-verify-818444443": {
+      "signature": "matches",
+      "signing_key": "sandbox",
+      "environment": "sandbox",
+      "format_version": "recognised"
+    },
+    "tampered-result-field": {
+      "signature": "does_not_match",
+      "signing_key": "sandbox",
+      "environment": "sandbox",
+      "format_version": "recognised"
+    },
+    "tampered-header-kid": {
+      "signature": "could_not_be_checked",
+      "signing_key": "unknown",
+      "environment": "could_not_be_checked",
+      "format_version": "recognised"
+    },
+    "tampered-header-alg-none": {
+      "signature": "could_not_be_checked",
+      "signing_key": "sandbox",
+      "environment": "sandbox",
+      "format_version": "recognised"
+    },
+    "tampered-header-typ": {
+      "signature": "could_not_be_checked",
+      "signing_key": "sandbox",
+      "environment": "sandbox",
+      "format_version": "not_recognised"
+    },
+    "tampered-is-sandbox-removed": {
+      "signature": "does_not_match",
+      "signing_key": "sandbox",
+      "environment": "sandbox",
+      "format_version": "recognised"
+    },
+    "header-crit": {
+      "signature": "does_not_match",
+      "signing_key": "sandbox",
+      "environment": "sandbox",
+      "format_version": "recognised"
+    },
+    "header-kid-missing": {
+      "signature": "could_not_be_checked",
+      "signing_key": "unknown",
+      "environment": "could_not_be_checked",
+      "format_version": "recognised"
+    },
+    "header-alg-not-a-string": {
+      "signature": "could_not_be_checked",
+      "signing_key": "sandbox",
+      "environment": "sandbox",
+      "format_version": "recognised"
+    }
+  }
+}
