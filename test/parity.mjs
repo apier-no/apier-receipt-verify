@@ -67,7 +67,13 @@ function randomString() {
   }
   return text;
 }
+const deep = (levels, open = '[', close = ']') => `${open.repeat(levels)}1${close.repeat(levels)}`;
 function randomJson(depth = 0) {
+  if (depth === 0 && chance(0.02)) {
+    // Nesting around the limit of 64, and far past it.
+    const levels = pick([63, 64, 65, 66, 1500, 20000]);
+    return chance(0.5) ? deep(levels) : deep(levels, '{"a":', '}');
+  }
   const kind = depth > 3 ? int(4) : int(6);
   if (kind === 0) return pick(['null', 'true', 'false']);
   if (kind === 1 || kind === 2) return randomNumber();
@@ -140,10 +146,21 @@ function randomCertificate() {
   if (chance(0.05)) header.typ = pick(['JWT', 'apier-key-history+jws', undefined, null, 'APIER-VERIFY-CERT+JWS']);
   if (chance(0.02)) header.crit = ['b64'];
   let headerText = JSON.stringify(header);
-  if (chance(0.02)) headerText = pick([`{"alg":"none",${headerText.slice(1)}`, '[]', 'null', '{', `${headerText} `]);
+  if (chance(0.05)) {
+    headerText = pick([`{"alg":"none",${headerText.slice(1)}`, '[]', 'null', '{', `${headerText} `, ` ${headerText}`,
+      String.fromCharCode(0xfeff) + headerText, `{"big":${'9'.repeat(5000)},${headerText.slice(1)}`, `{"big":1e999,${headerText.slice(1)}`,
+      `{"deep":${deep(pick([63, 64, 70, 1500]))},${headerText.slice(1)}`, `{"__proto__":{"alg":"none"},${headerText.slice(1)}`]);
+  }
   const headerSegment = b64u(headerText);
+  if (chance(0.03)) claims.result = JSON.parse(deep(pick([62, 63, 64, 65])));
   const body = JSON.parse(JSON.stringify(claims));
-  let signature = signWith(key, Buffer.from(`${headerSegment}.${b64u(canonicalJson(body))}`, 'ascii'));
+  let payloadText = 'not canonical';
+  try {
+    payloadText = canonicalJson(body);
+  } catch {
+    // nested too deep to sign: both implementations must then answer malformed_certificate
+  }
+  let signature = signWith(key, Buffer.from(`${headerSegment}.${b64u(payloadText)}`, 'ascii'));
   const mutation = int(24);
   if (mutation === 0) signature = Buffer.from(signature.map((b, i) => (i === int(signature.length) ? b ^ (1 << int(8)) : b)));
   else if (mutation === 1) signature = signature.subarray(0, signature.length - 1 - int(3));

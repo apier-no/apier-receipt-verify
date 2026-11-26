@@ -29,6 +29,10 @@ REASONS = (
 PRODUCTION_JWKS = "https://www.apier.no/.well-known/jwks.json"
 SANDBOX_JWKS = "https://www.apier.no/.well-known/sandbox-jwks.json"
 
+# Objects and arrays nested deeper than this are refused, so both implementations stop at the same
+# place instead of wherever a runtime's stack happens to end. Real certificates nest about 5 deep.
+MAX_DEPTH = 64
+
 _BASE64URL = re.compile(r"[A-Za-z0-9_-]+\Z")
 _INDEX_KEY = re.compile(r"(0|[1-9][0-9]{0,9})\Z")
 _ESCAPES = {'"': '\\"', "\\": "\\\\", "\b": "\\b", "\f": "\\f", "\n": "\\n", "\r": "\\r", "\t": "\\t"}
@@ -87,10 +91,11 @@ def _js_number(value):
     return sign + digits[0] + ("." + digits[1:] if k > 1 else "") + "e" + ("+" if exp >= 0 else "-") + str(abs(exp))
 
 
-def canonical_json(value):
+def canonical_json(value, _depth=0):
     """Apier's canonical JSON as a str: no whitespace; in every object the integer index keys first
     in numeric order, then the other keys by UTF-16 code units; strings and numbers as JavaScript
-    prints them. Raises on anything that is not a finite JSON value."""
+    prints them. Raises on anything that is not a finite JSON value or is nested deeper than
+    MAX_DEPTH."""
     if value is None:
         return "null"
     if value is True:
@@ -101,21 +106,25 @@ def canonical_json(value):
         return _js_string(value)
     if isinstance(value, (int, float)):
         return _js_number(value)
+    if isinstance(value, (list, dict)) and _depth >= MAX_DEPTH:
+        raise ValueError("nested too deep")
     if isinstance(value, list):
-        return "[" + ",".join(canonical_json(item) for item in value) + "]"
+        return "[" + ",".join(canonical_json(item, _depth + 1) for item in value) + "]"
     if isinstance(value, dict):
         if not all(isinstance(key, str) for key in value):
             raise TypeError("object keys must be strings")
         index = sorted((key for key in value if _is_index_key(key)), key=int)
         other = sorted((key for key in value if not _is_index_key(key)), key=_utf16)
-        return "{" + ",".join(_js_string(key) + ":" + canonical_json(value[key]) for key in index + other) + "}"
+        members = (_js_string(key) + ":" + canonical_json(value[key], _depth + 1) for key in index + other)
+        return "{" + ",".join(members) + "}"
     raise TypeError("not a JSON value")
 
 
 def parse_json_strict(text):
-    """json.loads that also refuses a repeated key in one object and the NaN and Infinity literals.
-    Parsers disagree on which of two equal keys wins, so one file could be read as two different
-    certificates."""
+    """json.loads that also refuses a repeated key in one object, the NaN and Infinity literals and
+    nesting deeper than MAX_DEPTH. Parsers disagree on which of two equal keys wins, so one file
+    could be read as two different certificates. Every number is read as a double, as JavaScript
+    reads it."""
     def pairs(items):
         obj = {}
         for key, value in items:
@@ -129,7 +138,18 @@ def parse_json_strict(text):
 
     if not isinstance(text, str):
         raise TypeError("JSON text must be a str")
-    return json.loads(text, object_pairs_hook=pairs, parse_constant=constant)
+    try:
+        value = json.loads(text, object_pairs_hook=pairs, parse_constant=constant, parse_int=float)
+    except RecursionError:
+        raise ValueError("nested too deep")
+    pending = [(value, 1)]
+    while pending:
+        node, depth = pending.pop()
+        if isinstance(node, (dict, list)):
+            if depth > MAX_DEPTH:
+                raise ValueError("nested too deep")
+            pending.extend((child, depth + 1) for child in (node.values() if isinstance(node, dict) else node))
+    return value
 
 
 # --- Base64url and keys ---------------------------------------------------------------------------

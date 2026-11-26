@@ -16,7 +16,11 @@ export const REASONS = [
 const P25519 = (1n << 255n) - 19n;
 const INDEX_KEY = /^(0|[1-9][0-9]*)$/;
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
-const utf8 = new TextDecoder('utf-8', { fatal: true });
+// Strict UTF-8 that keeps a byte order mark, so a header that starts with one is not valid JSON.
+const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+// Objects and arrays nested deeper than this are refused, so both implementations stop at the same
+// place instead of wherever a runtime's stack happens to end. Real certificates nest about 5 deep.
+export const MAX_DEPTH = 64;
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const isIndexKey = (k) => INDEX_KEY.test(k) && Number(k) < 4294967295;
@@ -28,16 +32,17 @@ const isCompromised = (jwk) => 'apier_compromised_at' in jwk;
 /**
  * Apier's canonical JSON: no whitespace; in every object the integer index keys first in numeric
  * order, then the other keys by UTF-16 code units; strings and numbers as JSON.stringify prints
- * them. Throws on anything that is not a finite JSON value.
+ * them. Throws on anything that is not a finite JSON value or is nested deeper than MAX_DEPTH.
  */
-export function canonicalJson(value) {
+export function canonicalJson(value, depth = 0) {
   if (value === null || typeof value === 'boolean') return String(value);
   if (typeof value === 'string') return JSON.stringify(value);
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) throw new TypeError('not a finite number');
     return JSON.stringify(value);
   }
-  if (Array.isArray(value)) return `[${Array.from(value, canonicalJson).join(',')}]`;
+  if (depth >= MAX_DEPTH) throw new RangeError('nested too deep');
+  if (Array.isArray(value)) return `[${Array.from(value, (item) => canonicalJson(item, depth + 1)).join(',')}]`;
   const proto = typeof value === 'object' ? Object.getPrototypeOf(value) : undefined;
   if (proto !== Object.prototype && proto !== null) throw new TypeError('not a JSON value');
   const keys = Object.keys(value);
@@ -45,7 +50,7 @@ export function canonicalJson(value) {
     ...keys.filter(isIndexKey).sort((a, b) => Number(a) - Number(b)),
     ...keys.filter((k) => !isIndexKey(k)).sort(), // the default sort compares UTF-16 code units
   ];
-  return `{${ordered.map((k) => `${JSON.stringify(k)}:${canonicalJson(value[k])}`).join(',')}}`;
+  return `{${ordered.map((k) => `${JSON.stringify(k)}:${canonicalJson(value[k], depth + 1)}`).join(',')}}`;
 }
 
 /**
@@ -57,8 +62,19 @@ export function canonicalJson(value) {
  * object with the same first key and a lone backslash as its second.)
  */
 export function parseJsonStrict(text) {
+  if (typeof text !== 'string') throw new TypeError('JSON text must be a string');
   JSON.parse(text); // throws on anything that is not JSON; its value is not used
   let i = 0;
+  let depth = 0;
+  const enter = () => {
+    if (++depth > MAX_DEPTH) throw new RangeError('nested too deep');
+    i++;
+  };
+  const leave = (container) => {
+    depth--;
+    i++;
+    return container;
+  };
   const skipSpace = () => {
     while (text[i] === ' ' || text[i] === '\t' || text[i] === '\n' || text[i] === '\r') i++;
   };
@@ -73,17 +89,16 @@ export function parseJsonStrict(text) {
     if (text[i] === '"') return readString();
     if (text[i] === '[') {
       const array = [];
-      for (i++, skipSpace(); text[i] !== ']'; skipSpace()) {
+      for (enter(), skipSpace(); text[i] !== ']'; skipSpace()) {
         array.push(readValue());
         skipSpace();
         if (text[i] === ',') i++;
       }
-      i++;
-      return array;
+      return leave(array);
     }
     if (text[i] === '{') {
       const object = {};
-      for (i++, skipSpace(); text[i] !== '}'; skipSpace()) {
+      for (enter(), skipSpace(); text[i] !== '}'; skipSpace()) {
         const key = readString();
         if (Object.hasOwn(object, key)) throw new SyntaxError('duplicate object key');
         skipSpace();
@@ -93,8 +108,7 @@ export function parseJsonStrict(text) {
         skipSpace();
         if (text[i] === ',') i++;
       }
-      i++;
-      return object;
+      return leave(object);
     }
     while (i < text.length && !' \t\n\r,]}'.includes(text[i])) i++;
     return JSON.parse(text.slice(start, i)); // a number, true, false or null
