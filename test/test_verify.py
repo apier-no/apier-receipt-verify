@@ -107,9 +107,14 @@ class Cases(unittest.TestCase):
             with self.subTest(case=case["name"]):
                 self.assertEqual(run(case), case["expect"], case["note"])
 
+    def test_adversarial_cases(self):
+        for case in load_cases("adversarial-cases.json"):
+            with self.subTest(case=case["name"]):
+                self.assertEqual(run(case), case["expect"], case["note"])
+
     def test_every_reason_code_is_exercised(self):
         used = set()
-        for name in ("sandbox-cases.json", "synthetic-cases.json"):
+        for name in ("sandbox-cases.json", "synthetic-cases.json", "adversarial-cases.json"):
             used.update(case["expect"]["reason"] for case in read(name)["cases"])
         used.discard(None)
         self.assertEqual(sorted(used), sorted(verifier.REASONS))
@@ -117,7 +122,7 @@ class Cases(unittest.TestCase):
     def test_findings_agree_with_apiers_own_receipt_check(self):
         official = read("official-findings.json")["vectors"]
         cases = {case["name"]: case for case in load_cases("sandbox-cases.json")}
-        self.assertEqual(len(official), 8)
+        self.assertEqual(len(official), 11)
         for name, findings in official.items():
             with self.subTest(vector=name):
                 self.assertEqual(run(cases[name])["findings"], findings)
@@ -132,6 +137,26 @@ class Cases(unittest.TestCase):
         certificate = read("sandbox-verify-999000001.json")
         result = verifier.check_certificate(certificate, {"keys": []}, allow_sandbox=True)
         self.assertEqual(result["reason"], "unknown_kid")
+        self.assertEqual(verifier.check_certificate(certificate, None)["reason"], "sandbox_not_allowed")
+
+    def test_sandbox_is_allowed_only_by_true_itself(self):
+        case = load_cases("sandbox-cases.json")[0]
+        for allow in ("true", "false", 1, {"a": 1}, [1], None):
+            with self.subTest(allow=repr(allow)):
+                result = verifier.check_certificate(case["certificate"], case["jwks"], allow_sandbox=allow)
+                self.assertEqual(result["reason"], "sandbox_not_allowed")
+
+    def test_small_order_list_is_the_eight_points_of_small_order(self):
+        neutral = verifier._point_encode((0, 1, 1, 0))
+        points = set()
+        for y in verifier._SMALL_ORDER_Y:
+            for sign in (0, 1):
+                encoded = (y | (sign << 255)).to_bytes(32, "little")
+                point = verifier._point_decode(encoded)
+                if point is not None:
+                    self.assertEqual(verifier._point_encode(verifier._point_mul(8, point)), neutral)
+                    points.add(encoded)
+        self.assertEqual(len(points), 8)
 
 
 class CommandLine(unittest.TestCase):

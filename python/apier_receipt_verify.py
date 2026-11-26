@@ -48,13 +48,17 @@ def _utf16(text):
     return text.encode("utf-16-be", "surrogatepass")
 
 
-def _js_string(text):
-    """A string as JavaScript's JSON.stringify writes it."""
+def _join_surrogates(text):
+    """Join surrogate pairs the way JavaScript reads them; a lone surrogate stays as it is."""
     if any("\ud800" <= ch <= "\udfff" for ch in text):
-        # Join surrogate pairs the way JavaScript reads them; a lone surrogate stays and is escaped.
-        text = _utf16(text).decode("utf-16-be", "surrogatepass")
+        return _utf16(text).decode("utf-16-be", "surrogatepass")
+    return text
+
+
+def _js_string(text):
+    """A string as JavaScript's JSON.stringify writes it; a lone surrogate is escaped."""
     out = ['"']
-    for ch in text:
+    for ch in _join_surrogates(text):
         if ch in _ESCAPES:
             out.append(_ESCAPES[ch])
         elif ch < " " or "\ud800" <= ch <= "\udfff":
@@ -128,6 +132,7 @@ def parse_json_strict(text):
     def pairs(items):
         obj = {}
         for key, value in items:
+            key = _join_surrogates(key)  # compare keys as JavaScript does, by UTF-16 code units
             if key in obj:
                 raise ValueError("duplicate object key")
             obj[key] = value
@@ -138,18 +143,26 @@ def parse_json_strict(text):
 
     if not isinstance(text, str):
         raise TypeError("JSON text must be a str")
-    try:
-        value = json.loads(text, object_pairs_hook=pairs, parse_constant=constant, parse_int=float)
-    except RecursionError:
-        raise ValueError("nested too deep")
-    pending = [(value, 1)]
-    while pending:
-        node, depth = pending.pop()
-        if isinstance(node, (dict, list)):
+    # Count the nesting on the text, before any parser runs, so the answer does not depend on how
+    # much stack is left.
+    depth, in_string, skip = 0, False, False
+    for ch in text:
+        if skip:
+            skip = False
+        elif in_string:
+            if ch == "\\":
+                skip = True
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch in "[{":
+            depth += 1
             if depth > MAX_DEPTH:
                 raise ValueError("nested too deep")
-            pending.extend((child, depth + 1) for child in (node.values() if isinstance(node, dict) else node))
-    return value
+        elif ch in "]}":
+            depth -= 1
+    return json.loads(text, object_pairs_hook=pairs, parse_constant=constant, parse_int=float)
 
 
 # --- Base64url and keys ---------------------------------------------------------------------------
@@ -199,19 +212,38 @@ def _key_fits(jwk, alg):
     return jwk.get("kty") == "OKP" and jwk.get("crv") == "Ed25519"
 
 
+def _ed25519_y(data):
+    return int.from_bytes(data, "little") & ((1 << 255) - 1)
+
+
+# The y coordinates of the eight points of small order. Under such a key anyone can make a signature.
+_SMALL_ORDER_Y = frozenset(_ed25519_y(bytes.fromhex(encoded)) for encoded in (
+    "0000000000000000000000000000000000000000000000000000000000000000",
+    "0100000000000000000000000000000000000000000000000000000000000000",
+    "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+    "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+    "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+))
+
+
 def _import_key(jwk, alg):
-    """The public key as numbers or bytes, or None when the JWK is unusable."""
+    """The public key as numbers or bytes, or None when the JWK is unusable. Both implementations
+    apply the same rules here, so neither depends on what its crypto library happens to tolerate."""
     if alg == "RS256":
         n_bytes, e_bytes = _decode_base64url(jwk.get("n")), _decode_base64url(jwk.get("e"))
-        if n_bytes is None or e_bytes is None:
+        # Minimal encodings, an odd modulus of 2048 to 16384 bits, an odd exponent from 3 to below 2^64.
+        if n_bytes is None or e_bytes is None or n_bytes[0] == 0 or e_bytes[0] == 0 or len(e_bytes) > 8:
             return None
         n, e = int.from_bytes(n_bytes, "big"), int.from_bytes(e_bytes, "big")
-        return (n, e) if n.bit_length() >= 2048 and e >= 3 and e % 2 == 1 else None
+        if not 2048 <= n.bit_length() <= 16384 or n % 2 == 0 or e % 2 == 0 or e < 3:
+            return None
+        return (n, e)
     x = _decode_base64url(jwk.get("x"))
     if x is None or len(x) != 32:
         return None
-    if int.from_bytes(x, "little") & ((1 << 255) - 1) >= _P:
-        return None  # not the canonical encoding of a point
+    y = _ed25519_y(x)
+    if y >= _P or y in _SMALL_ORDER_Y:
+        return None  # not canonical, or of small order
     return x
 
 
@@ -333,7 +365,7 @@ def _parse_detached_jws(jws):
         return None
     try:
         header = parse_json_strict(header_bytes.decode("utf-8"))
-    except (ValueError, RecursionError):
+    except ValueError:  # not UTF-8 or not strict JSON; a RecursionError is passed on, see below
         return None
     return (parts[0], header, signature) if isinstance(header, dict) else None
 
@@ -354,7 +386,10 @@ def _read_keys(jwks):
 
 def verify_key_history(document, jwks):
     """True when the key history document is signed (RS256, typ apier-key-history+jws) by a key in
-    `jwks` that is neither a sandbox key nor marked compromised. Only then may it be used."""
+    `jwks` that is neither a sandbox key nor marked compromised. Only then may it be used.
+
+    A RecursionError is not caught here: running out of stack says nothing about the document, and
+    reading it as "ignore the history" would drop a compromise mark."""
     try:
         if not isinstance(document, dict) or document.get("history_version") != "1":
             return False
@@ -365,43 +400,47 @@ def verify_key_history(document, jwks):
         if jws is None:
             return False
         header_segment, header, signature = jws
+        kid = header.get("kid")
         if header.get("alg") != "RS256" or header.get("typ") != KEY_HISTORY_TYP or "crit" in header:
             return False
-        jwk = next((k for k in _read_keys(jwks) if k.get("kid") == header.get("kid") and _key_fits(k, "RS256")), None)
+        if not isinstance(kid, str) or kid == "":
+            return False
+        jwk = next((k for k in _read_keys(jwks) if k.get("kid") == kid and _key_fits(k, "RS256")), None)
         if jwk is None or _is_sandbox_key(jwk) or _is_compromised(jwk):
             return False
         public_key = _import_key(jwk, "RS256")
         if public_key is None:
             return False
         return _rsa_verify(public_key, _signing_input(header_segment, _payload_segment(unsigned)), signature)
-    except (TypeError, ValueError, OverflowError, RecursionError):
+    except (TypeError, ValueError, OverflowError):
         return False
 
 
 def _with_key_history_marks(keys, document):
-    """A verified key history only ever adds marks, and only to the key whose thumbprint it lists."""
+    """A verified key history only ever adds marks, and only to the key whose thumbprint an entry
+    lists. Every matching entry counts, and anything but a plain current or retired entry marks the
+    key compromised, so a repeated or oddly shaped entry cannot hide a compromise."""
     entries = [
         e for e in document["keys"]
-        if isinstance(e, dict) and isinstance(e.get("kid"), str) and e["kid"] != ""
-        and e.get("environment") == "production" and e.get("state") in ("current", "retired", "compromised")
-        and isinstance(e.get("alg"), str) and isinstance(e.get("jwk_thumbprint"), str)
-        and isinstance(e.get("jwks_uri"), str)
+        if isinstance(e, dict) and e.get("environment") == "production"
+        and isinstance(e.get("kid"), str) and isinstance(e.get("jwk_thumbprint"), str)
     ]
     out = []
     for key in keys:
-        entry = None
-        if not _is_sandbox_key(key):
-            thumbprint = jwk_thumbprint(key)
-            entry = next((e for e in entries if e["kid"] == key.get("kid") and e["jwk_thumbprint"] == thumbprint), None)
-        if entry is None or entry["state"] == "current":
+        if _is_sandbox_key(key):
             out.append(key)
             continue
+        thumbprint = jwk_thumbprint(key)
         marked = dict(key)
-        if not _is_retired(key) and isinstance(entry.get("valid_to"), str):
-            marked["apier_retired_at"] = entry["valid_to"]
-        if entry["state"] == "compromised" and not _is_compromised(key):
-            compromised_at = entry.get("compromised_at")
-            marked["apier_compromised_at"] = compromised_at if isinstance(compromised_at, str) else ""
+        for entry in entries:
+            if entry["kid"] != key.get("kid") or entry["jwk_thumbprint"] != thumbprint:
+                continue
+            state, valid_to, compromised_at = entry.get("state"), entry.get("valid_to"), entry.get("compromised_at")
+            if state != "current" and not _is_retired(marked) and isinstance(valid_to, str):
+                marked["apier_retired_at"] = valid_to
+            leaked = state not in ("current", "retired") or compromised_at is not None
+            if leaked and not _is_compromised(marked):
+                marked["apier_compromised_at"] = compromised_at if isinstance(compromised_at, str) else ""
         out.append(marked)
     return out
 
@@ -441,7 +480,7 @@ def check_certificate(cert, jwks, key_history=None, allow_sandbox=False, now=Non
     jws_text = cert.get("signature")
     if not isinstance(jws_text, str) or jws_text == "":
         return finish("missing_signature")
-    if sandbox_certificate and not allow_sandbox:
+    if sandbox_certificate and allow_sandbox is not True:
         failed.add("sandbox_not_allowed")
     issuer = claims.get("issuer")
     issuer_is_production = isinstance(issuer, str) and issuer in PRODUCTION_ISSUERS
@@ -453,9 +492,11 @@ def check_certificate(cert, jwks, key_history=None, allow_sandbox=False, now=Non
         return finish("bad_header")
     header_segment, header, signature = jws
     typ, alg, kid = header.get("typ"), header.get("alg"), header.get("kid")
+    alg = alg if isinstance(alg, str) else None
+    kid = kid if isinstance(kid, str) and kid != "" else None
     findings["format_version"] = "recognised" if typ == CERTIFICATE_TYP else "not_recognised"
-    if not isinstance(alg, str) or not isinstance(kid, str) or kid == "" or "crit" in header:
-        return finish("bad_header")
+    if alg is None or kid is None or "crit" in header:
+        failed.add("bad_header")
     known_alg = alg in ("RS256", "EdDSA")
     if known_alg:
         result["alg"] = alg
@@ -474,7 +515,7 @@ def check_certificate(cert, jwks, key_history=None, allow_sandbox=False, now=Non
     keys = _read_keys(jwks)
     if key_history is not None and verify_key_history(key_history, {"keys": keys}):
         keys = _with_key_history_marks(keys, key_history)
-    jwk = next((k for k in keys if k.get("kid") == kid and _key_fits(k, alg)), None)
+    jwk = None if kid is None else next((k for k in keys if k.get("kid") == kid and _key_fits(k, alg)), None)
     public_key = None if jwk is None else _import_key(jwk, alg)
     if public_key is None:
         findings["signing_key"] = "unknown"
@@ -519,7 +560,7 @@ def check_certificate_text(text, jwks, key_history=None, allow_sandbox=False, no
     `malformed_certificate`. A full API response is accepted too: its `data` member is checked."""
     try:
         value = parse_json_strict(text)
-    except (TypeError, ValueError, RecursionError):
+    except (TypeError, ValueError):
         value = None
     if isinstance(value, dict) and "signature" not in value and isinstance(value.get("data"), dict):
         value = value["data"]
@@ -598,7 +639,7 @@ def _load_json(source, label):
             data = handle.read()
     try:
         return parse_json_strict(_decode_text(data))
-    except (ValueError, RecursionError):
+    except ValueError:
         raise RuntimeError("%s: %s is not valid JSON" % (label, source))
 
 
@@ -656,7 +697,9 @@ def main(argv=None):
     except UnicodeDecodeError:
         text = None  # not UTF-8: check_certificate_text answers malformed_certificate for it
     result = check_certificate_text(text, jwks, key_history=key_history, allow_sandbox=options["sandbox"])
-    sys.stdout.write((_ascii_only(json.dumps(result, indent=2)) if options["json"] else _render(result)) + "\n")
+    text = (_ascii_only(json.dumps(result, indent=2)) if options["json"] else _render(result)) + "\n"
+    sys.stdout.flush()
+    sys.stdout.buffer.write(text.encode("ascii"))  # bytes, so line endings are the same on every platform
     return 0 if result["reason"] is None else 1
 
 

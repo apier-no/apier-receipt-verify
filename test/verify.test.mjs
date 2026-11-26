@@ -78,7 +78,7 @@ test('strict JSON: refuses a repeated key at any depth and keeps everything else
   assert.throws(() => parseJsonStrict('{"a":1,}'));
 });
 
-for (const file of ['sandbox-cases.json', 'synthetic-cases.json']) {
+for (const file of ['sandbox-cases.json', 'synthetic-cases.json', 'adversarial-cases.json']) {
   for (const c of loadCases(file)) {
     test(`${file}: ${c.name}`, async () => {
       assert.deepEqual(await run(c), c.expect, c.note);
@@ -88,7 +88,7 @@ for (const file of ['sandbox-cases.json', 'synthetic-cases.json']) {
 
 test('every reason code is exercised by a case, and no case uses another', () => {
   const used = new Set();
-  for (const file of ['sandbox-cases.json', 'synthetic-cases.json']) {
+  for (const file of ['sandbox-cases.json', 'synthetic-cases.json', 'adversarial-cases.json']) {
     for (const c of read(file).cases) used.add(c.expect.reason);
   }
   assert.deepEqual([...used].filter((r) => r !== null).sort(), [...REASONS].sort());
@@ -97,7 +97,7 @@ test('every reason code is exercised by a case, and no case uses another', () =>
 test("the findings agree with Apier's own receipt check on every recorded vector", async () => {
   const official = read('official-findings.json').vectors;
   const cases = loadCases('sandbox-cases.json');
-  assert.equal(Object.keys(official).length, 8);
+  assert.equal(Object.keys(official).length, 11);
   for (const [name, findings] of Object.entries(official)) {
     const c = cases.find((candidate) => candidate.name === name);
     assert.ok(c, name);
@@ -117,6 +117,26 @@ test('the certificate jwks_uri is never used for key lookup', async () => {
   const certificate = read('sandbox-verify-999000001.json');
   const result = await checkCertificate(certificate, { jwks: { keys: [] }, allowSandbox: true });
   assert.equal(result.reason, 'unknown_kid');
+  assert.equal((await checkCertificate(certificate, null)).reason, 'sandbox_not_allowed');
+});
+
+test('sandbox certificates are allowed only by allowSandbox: true itself', async () => {
+  const [c] = loadCases('sandbox-cases.json');
+  for (const allowSandbox of ['true', 'false', 1, {}, [], null, undefined]) {
+    assert.equal((await checkCertificate(c.certificate, { jwks: c.jwks, allowSandbox })).reason, 'sandbox_not_allowed');
+  }
+});
+
+test('what is reported comes from the signed bytes, not from the object passed in', async () => {
+  // An object whose freshness.stale reads true once (when it is signed over) and false afterwards.
+  const [c] = loadCases('sandbox-cases.json');
+  let reads = 0;
+  const freshness = { ...c.certificate.freshness };
+  Object.defineProperty(freshness, 'stale', { enumerable: true, get: () => reads++ > 0 });
+  const result = await checkCertificate({ ...c.certificate, freshness }, { jwks: c.jwks, allowSandbox: true });
+  assert.equal(result.reason, null);
+  assert.equal(result.stale, false);
+  assert.equal(reads, 1);
 });
 
 test('command line: output, exit codes and offline use', () => {

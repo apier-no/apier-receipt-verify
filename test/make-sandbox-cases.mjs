@@ -120,15 +120,16 @@ add('header-is-array', 'The header is a JSON array.',
 add('header-duplicate-key', 'The header repeats alg, so two parsers could read two algorithms.',
   { certificate: withHeader(base, () => '{"alg":"none","alg":"EdDSA","kid":"apier-sandbox-cert-1","typ":"apier-verify-cert+jws"}') },
   expected('bad_header', undecided));
-add('header-crit', 'A header with crit names an extension this verifier does not implement.',
-  { certificate: withHeader(base, (h) => ({ ...h, crit: ['b64'], b64: false })) },
-  expected('bad_header', findings('could_not_be_checked', 'could_not_be_checked', 'could_not_be_checked')));
-add('header-kid-missing', 'A header without kid.',
+// The next three were also sent to Apier's own receipt check (official-findings.json): the reason is
+// bad_header here, and the findings are still the ones Apier's check gives.
+add('header-crit', 'A header with crit names an extension this verifier does not implement. The header changed, so the signature no longer matches.',
+  { certificate: withHeader(base, (h) => ({ ...h, crit: ['b64'], b64: false })) }, broken('bad_header'));
+add('header-kid-missing', 'A header without kid names no key.',
   { certificate: withHeader(base, ({ kid, ...rest }) => rest) },
-  expected('bad_header', findings('could_not_be_checked', 'could_not_be_checked', 'could_not_be_checked')));
-add('header-alg-not-a-string', 'A header whose alg is a list.',
+  expected('bad_header', findings('could_not_be_checked', 'unknown', 'could_not_be_checked'), { alg: 'EdDSA' }));
+add('header-alg-not-a-string', 'A header whose alg is a list. It still names the sandbox kid, so it is labelled sandbox.',
   { certificate: withHeader(base, (h) => ({ ...h, alg: ['EdDSA'] })) },
-  expected('bad_header', findings('could_not_be_checked', 'could_not_be_checked', 'could_not_be_checked')));
+  expected('bad_header', findings('could_not_be_checked', 'sandbox', 'sandbox')));
 
 const notSandbox = { is_sandbox: false };
 add('certificate-is-array', 'A JSON array is not a certificate.', { certificate: [base] }, expected('malformed_certificate', undecided, notSandbox));

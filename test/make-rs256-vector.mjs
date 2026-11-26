@@ -351,6 +351,37 @@ add('ed25519-s-high-bit-set', 'The top bit of S set.',
     expected(null, findings('matches', 'current', 'production'), read(current)));
 }
 
+// --- Limits and header oddities, each under a valid signature ----------------------------------------
+{
+  const unchecked = findings('could_not_be_checked', 'could_not_be_checked', 'could_not_be_checked', 'could_not_be_checked');
+  // The certificate object is level 1, so `levels` arrays inside result reach level `levels + 1`.
+  const nested = (levels) => JSON.parse(`${'['.repeat(levels)}1${']'.repeat(levels)}`);
+  add('nesting-at-the-limit', 'Nested 64 levels deep, the most that is accepted.',
+    { certificate: certificate(current, { claims: { result: nested(63) } }) },
+    expected(null, findings('matches', 'current', 'production'), read(current)));
+  add('nesting-over-the-limit', 'Nested 65 levels deep.',
+    { certificate: certificate(current, { claims: { result: nested(64) } }) }, expected('malformed_certificate', unchecked));
+
+  const withHeaderText = (text) => {
+    const body = claimsFor(current);
+    const headerSegment = b64u(text);
+    const signature = rawSign(current, Buffer.from(`${headerSegment}.${b64u(canon(body))}`, 'ascii'));
+    return { ...body, signature: `${headerSegment}..${b64u(signature)}` };
+  };
+  const headerText = JSON.stringify(headerFor(current));
+  add('header-byte-order-mark', 'A header that starts with a byte order mark is not JSON.',
+    { certificate: withHeaderText(String.fromCharCode(0xfeff) + headerText) }, expected('bad_header', unchecked));
+  add('header-proto-member', 'A header whose only member is named __proto__ has no alg, kid or typ of its own.',
+    { certificate: withHeaderText(`{"__proto__":${headerText}}`) },
+    expected('bad_header', findings('could_not_be_checked', 'could_not_be_checked', 'could_not_be_checked', 'not_recognised')));
+  add('header-not-utf8', 'A header that is not UTF-8.',
+    { certificate: withHeaderText(Buffer.concat([Buffer.from(headerText.slice(0, -1)), Buffer.from(',"x":"'), Buffer.from([0xff]), Buffer.from('"}')])) },
+    expected('bad_header', unchecked));
+  add('header-extra-members', 'Extra header members, a number too large for a double among them, change nothing.',
+    { certificate: withHeaderText(` {"note":["x",{"y":null}],"n":${'9'.repeat(5000)},${headerText.slice(1)}\n`) },
+    expected(null, findings('matches', 'current', 'production'), read(current)));
+}
+
 // --- Key history ------------------------------------------------------------------------------------
 const historyEntries = [
   { alg: 'RS256', compromised_at: null, environment: 'production', jwk_thumbprint: thumbprint(current.jwk), jwks_uri: 'https://www.apier.no/.well-known/jwks.json', kid: current.kid, state: 'current', valid_from: '2026-09-01', valid_to: null },

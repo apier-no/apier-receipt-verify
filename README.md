@@ -84,18 +84,20 @@ result = check_certificate_text(certificate_text, jwks, key_history=None, allow_
 
 `checkCertificate(cert, options)` and `check_certificate(cert, jwks, ...)` take an object you have already parsed. Use the text functions when you can: a repeated key in a JSON object can only be seen in the text, and they refuse it. Both forms accept a `now` argument and ignore it, because no rule here depends on the clock.
 
+Sandbox certificates are allowed only when the flag is exactly `true` (`True` in Python). A bad certificate never raises: it gives a reason. The one thing that is passed on to the caller is a stack overflow (`RangeError` in Node, `RecursionError` in Python), because running out of stack says nothing about the certificate.
+
 ## What is checked
 
 `reason` is the first of these that fails, in this order. It is `null` (printed as `none`) when none does.
 
-1. `malformed_certificate`: the input is not a JSON object, has a repeated key, holds a number that is not finite, or has an `is_sandbox` that is not a boolean.
+1. `malformed_certificate`: the input is not a JSON object, has a repeated key, holds a number that is not finite, is nested more than 64 levels deep, or has an `is_sandbox` that is not a boolean.
 2. `missing_signature`: there is no `signature` member, or it is not a non-empty string.
 3. `sandbox_not_allowed`: the certificate says `is_sandbox: true` and sandbox certificates were not allowed.
 4. `wrong_issuer`: a production certificate must name `https://www.apier.no` as `issuer` (the apex `https://apier.no`, which older certificates carry, is accepted too).
-5. `bad_header`: `signature` is not a detached compact JWS (`header..signature`, RFC 7515 Appendix F) in unpadded base64url, or its header is not a JSON object with `alg` and `kid`, repeats a key, or carries `crit`.
+5. `bad_header`: `signature` is not a detached compact JWS (`header..signature`, RFC 7515 Appendix F) in unpadded base64url, or its header is not a JSON object with a string `alg` and a non-empty string `kid`, repeats a key, or carries `crit`.
 6. `wrong_typ`: the header `typ` is not `apier-verify-cert+jws`. Apier's keys sign other things as well, so a matching signature under another `typ` is not a certificate.
 7. `alg_not_allowed`: a production certificate must be `RS256` and a sandbox certificate `EdDSA`. `none`, `HS256` and everything else are refused, and the algorithm is always checked against the type of the key.
-8. `unknown_kid`: the key set has no usable key with the header's `kid` for that algorithm. A sandbox key is never used for a production certificate, and only a sandbox key is used for a sandbox certificate. RSA keys under 2048 bits are not used.
+8. `unknown_kid`: the key set has no usable key with the header's `kid` for that algorithm. A sandbox key is never used for a production certificate, and only a sandbox key is used for a sandbox certificate. An RSA key is used only when its modulus is odd and 2048 to 16384 bits long and its exponent is odd, at least 3 and below 2^64. An Ed25519 key is used only when it is the canonical 32-byte encoding of a point that is not of small order.
 9. `compromised_key`: the key is marked as leaked (see below).
 10. `signature_invalid`: the signature does not match the certificate.
 
@@ -130,7 +132,7 @@ Apier marks keys in its key set. A key with `apier_retired_at` stopped signing o
 
 A certificate under a compromised key is always refused here, including one whose `issued_at` is earlier than the compromise. Whoever holds a leaked key can sign any date, and offline there is no other date to compare with. Apier's own check is more lenient on this point: it answers `verified`, flagged, for a certificate dated before the compromise.
 
-A key set saved before a key was retired or marked does not carry the mark. The signed key history (`https://www.apier.no/.well-known/signing-key-history.json`) fills that gap. It is used only when its own signature checks against a production key in the key set you passed, and it can only add marks, never remove one. If it does not check, it is ignored and the command line prints a warning.
+A key set saved before a key was retired or marked does not carry the mark. The signed key history (`https://www.apier.no/.well-known/signing-key-history.json`) fills that gap. It is used only when its own signature checks against a production key in the key set you passed, and it can only add marks, never remove one. An entry applies to a key when its `kid` and its fingerprint (RFC 7638 thumbprint) are that key's. Every such entry counts, and an entry whose state is anything other than `current` or `retired` marks the key compromised. If the history does not check, it is ignored and the command line prints a warning.
 
 ## Production use
 
@@ -159,8 +161,9 @@ Both implementations run the same case files in `test/vectors/`:
 
 - `canonical-vector.json` is the 131-byte test vector from Apier's guide, and `canonical-cases.json` holds 634 more JSON texts with their canonical form.
 - `sandbox-*.json` are three real sandbox certificates (fictional fixture data) and the sandbox key set. `sandbox-cases.json` adds tampered copies of them.
-- `official-findings.json` records what Apier's own receipt check answered for eight of those vectors. The tests require the same four findings.
+- `official-findings.json` records what Apier's own receipt check answered for eleven of those vectors. The tests require the same four findings.
 - `synthetic-cases.json` covers the production RS256 path, retired and compromised keys, the key history and forged signatures. Its keys are synthetic test keys made by `test/make-rs256-vector.mjs`. They are not Apier's keys, and no real production certificate is in this repository.
+- `adversarial-cases.json` holds 541 cases written by an independent reviewer who was given only the specification and this repository: repeated keys, signatures over non-canonical bytes, keys presented under the wrong algorithm, sandbox keys in production mode, compromised keys with and without a key history, and malformed keys, headers and signatures. Its keys are throwaway test keys too.
 
 `test/parity.mjs` generates random JSON texts and random certificates, runs the Node and the Python verifier on each, and fails on any difference. CI runs all of this on Node 20 and 22 and Python 3.9 and 3.12. On every pull request and once a week it also fetches a fresh sandbox certificate and checks it with both command lines.
 

@@ -50,6 +50,24 @@
       "signing_key": "sandbox",
       "environment": "sandbox",
       "format_version": "recognised"
+    },
+    "header-crit": {
+      "signature": "does_not_match",
+      "signing_key": "sandbox",
+      "environment": "sandbox",
+      "format_version": "recognised"
+    },
+    "header-kid-missing": {
+      "signature": "could_not_be_checked",
+      "signing_key": "unknown",
+      "environment": "could_not_be_checked",
+      "format_version": "recognised"
+    },
+    "header-alg-not-a-string": {
+      "signature": "could_not_be_checked",
+      "signing_key": "sandbox",
+      "environment": "sandbox",
+      "format_version": "recognised"
     }
   }
 }

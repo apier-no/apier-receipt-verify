@@ -1644,7 +1644,7 @@
     },
     {
       "name": "header-crit",
-      "note": "A header with crit names an extension this verifier does not implement.",
+      "note": "A header with crit names an extension this verifier does not implement. The header changed, so the signature no longer matches.",
       "jwks": "sandbox",
       "allow_sandbox": true,
       "certificate": {
@@ -1694,13 +1694,13 @@
       "expect": {
         "reason": "bad_header",
         "findings": {
-          "signature": "could_not_be_checked",
-          "signing_key": "could_not_be_checked",
-          "environment": "could_not_be_checked",
+          "signature": "does_not_match",
+          "signing_key": "sandbox",
+          "environment": "sandbox",
           "format_version": "recognised"
         },
-        "kid": null,
-        "alg": null,
+        "kid": "apier-sandbox-cert-1",
+        "alg": "EdDSA",
         "is_sandbox": true,
         "issued_at": null,
         "stale": null
@@ -1708,7 +1708,7 @@
     },
     {
       "name": "header-kid-missing",
-      "note": "A header without kid.",
+      "note": "A header without kid names no key.",
       "jwks": "sandbox",
       "allow_sandbox": true,
       "certificate": {
@@ -1759,12 +1759,12 @@
         "reason": "bad_header",
         "findings": {
           "signature": "could_not_be_checked",
-          "signing_key": "could_not_be_checked",
+          "signing_key": "unknown",
           "environment": "could_not_be_checked",
           "format_version": "recognised"
         },
         "kid": null,
-        "alg": null,
+        "alg": "EdDSA",
         "is_sandbox": true,
         "issued_at": null,
         "stale": null
@@ -1772,7 +1772,7 @@
     },
     {
       "name": "header-alg-not-a-string",
-      "note": "A header whose alg is a list.",
+      "note": "A header whose alg is a list. It still names the sandbox kid, so it is labelled sandbox.",
       "jwks": "sandbox",
       "allow_sandbox": true,
       "certificate": {
@@ -1823,8 +1823,8 @@
         "reason": "bad_header",
         "findings": {
           "signature": "could_not_be_checked",
-          "signing_key": "could_not_be_checked",
-          "environment": "could_not_be_checked",
+          "signing_key": "sandbox",
+          "environment": "sandbox",
           "format_version": "recognised"
         },
         "kid": null,
