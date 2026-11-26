@@ -1,0 +1,7 @@
+{
+  "source": "https://www.apier.no/docs/guides/verify-certificate (The exact canonical JSON rule, test vector)",
+  "input": "{\"b\":[3,{\"z\":null,\"a\":\"æ\"}],\"10\":\"ten\",\"9\":\"nine\",\"a\":{\"€\":1.5,\"A\":true},\"-1\":\"minus\",\"1e3\":100.0,\"big\":1e21,\"01\":\"leading zero\"}",
+  "canonical": "{\"9\":\"nine\",\"10\":\"ten\",\"-1\":\"minus\",\"01\":\"leading zero\",\"1e3\":100,\"a\":{\"A\":true,\"€\":1.5},\"b\":[3,{\"a\":\"æ\",\"z\":null}],\"big\":1e+21}",
+  "bytes": 131,
+  "sha256": "0c4ea692bb7cfcd96a31ed82ed6bedd87e6517be24b620d170c12af80975f7fa"
+}

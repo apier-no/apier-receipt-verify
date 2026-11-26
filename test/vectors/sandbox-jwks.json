@@ -1,0 +1,13 @@
+{
+  "keys": [
+    {
+      "alg": "EdDSA",
+      "apier_sandbox": true,
+      "crv": "Ed25519",
+      "kid": "apier-sandbox-cert-1",
+      "kty": "OKP",
+      "use": "sig",
+      "x": "Ws4353wy0igaNRQNmwdFKb99217TmfPRSJgHYD0aFbk"
+    }
+  ]
+}

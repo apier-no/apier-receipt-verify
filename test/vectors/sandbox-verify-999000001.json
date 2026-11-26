@@ -1,0 +1,44 @@
+{
+  "result": {
+    "org_number": "999000001",
+    "name": "Sandbox AS",
+    "entity_type": "AS",
+    "verification_status": "pass",
+    "check_status": "verified",
+    "signals": {
+      "is_active": true,
+      "not_bankrupt": true,
+      "not_under_dissolution": true,
+      "not_forcibly_dissolved": true,
+      "has_signing_authority_defined": true,
+      "has_filed_annual_accounts": true,
+      "mva_registered": true
+    },
+    "summary": "Selskapet er aktivt registrert i Enhetsregisteret og har registrert signaturrett, prokura eller innehaver.",
+    "fail_reason": null,
+    "summary_en": "The company is actively registered in the Central Coordinating Register for Legal Entities (Enhetsregisteret) and has a registered signing authority (signaturrett), procuration (prokura) or owner (innehaver).",
+    "signing_authority_summary": "Signaturrett tildelt rollene: «DAGL».",
+    "last_accounts_year": 2024,
+    "nace_codes": [
+      "62.010"
+    ],
+    "municipality": "OSLO",
+    "data_sources": [
+      "brreg"
+    ],
+    "verification_timestamp": "2026-01-01T09:00:00+01:00"
+  },
+  "issuer": "https://www.apier.no",
+  "issued_at": "2026-01-01T09:00:00+01:00",
+  "kid": "apier-sandbox-cert-1",
+  "jwks_uri": "https://www.apier.no/.well-known/sandbox-jwks.json",
+  "rulebook_version": "sandbox",
+  "audit_log_ref": "sha256:819ce21c65972c7925d9fe324a45b4f9bae706dd7a9ecb284a9cb67233b348cb",
+  "is_sandbox": true,
+  "freshness": {
+    "retrieved_at": "2026-01-01T00:00:00+01:00",
+    "served_from": "static",
+    "stale": false
+  },
+  "signature": "eyJhbGciOiJFZERTQSIsImtpZCI6ImFwaWVyLXNhbmRib3gtY2VydC0xIiwidHlwIjoiYXBpZXItdmVyaWZ5LWNlcnQrandzIn0..z5iCl8yNQ56jGEiEbWRhqKwTGl5tErb5E6aHT0ka_MdksKFzRguHeJmbFj-DCL2zwCpdTMnS7O7KUxN_3q2oCw"
+}

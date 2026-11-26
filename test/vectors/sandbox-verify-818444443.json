@@ -1,0 +1,45 @@
+{
+  "result": {
+    "org_number": "818444443",
+    "name": "Solhøyden Eiendom AS",
+    "entity_type": "AS",
+    "verification_status": "pass",
+    "check_status": "verified",
+    "signals": {
+      "is_active": true,
+      "not_bankrupt": true,
+      "not_under_dissolution": true,
+      "not_forcibly_dissolved": true,
+      "has_signing_authority_defined": true,
+      "has_filed_annual_accounts": true,
+      "mva_registered": true
+    },
+    "summary": "Selskapet er aktivt registrert i Enhetsregisteret og har registrert signaturrett, prokura eller innehaver.",
+    "fail_reason": null,
+    "summary_en": "The company is actively registered in the Central Coordinating Register for Legal Entities (Enhetsregisteret) and has a registered signing authority (signaturrett), procuration (prokura) or owner (innehaver).",
+    "signing_authority_summary": "Signaturrett tildelt rollene: «DAGL», «STYRL».",
+    "last_accounts_year": 2024,
+    "nace_codes": [
+      "68.209",
+      "68.100"
+    ],
+    "municipality": "STAVANGER",
+    "data_sources": [
+      "brreg"
+    ],
+    "verification_timestamp": "2026-01-01T09:00:00+01:00"
+  },
+  "issuer": "https://www.apier.no",
+  "issued_at": "2026-01-01T09:00:00+01:00",
+  "kid": "apier-sandbox-cert-1",
+  "jwks_uri": "https://www.apier.no/.well-known/sandbox-jwks.json",
+  "rulebook_version": "sandbox",
+  "audit_log_ref": "sha256:859abee452f49a7c79680ce93da5a8dff91d0aea4bfa58e915a4828602e7af29",
+  "is_sandbox": true,
+  "freshness": {
+    "retrieved_at": "2026-01-01T00:00:00+01:00",
+    "served_from": "static",
+    "stale": false
+  },
+  "signature": "eyJhbGciOiJFZERTQSIsImtpZCI6ImFwaWVyLXNhbmRib3gtY2VydC0xIiwidHlwIjoiYXBpZXItdmVyaWZ5LWNlcnQrandzIn0..qn0HTTDdq5rLLlPU9b0TuC4uRkIOl9XXDZYJsI4LIMmhkEeRbmlOgD-l1sEXguUXy4XHJPyty6Xz0JP1XTpJAQ"
+}

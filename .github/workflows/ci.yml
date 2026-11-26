@@ -1,0 +1,153 @@
+name: CI
+
+# Tests for both implementations, a Node-against-Python comparison, and a live check against the
+# Apier sandbox. No secrets are used anywhere.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '23 6 * * 1' # Mondays 06:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    name: Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+      - run: node --test
+
+  python:
+    name: Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.9', '3.12']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m unittest discover -s test
+
+  parity:
+    name: Node and Python give the same answers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Compare both implementations on random inputs
+        run: node test/parity.mjs --run --count 3000 --python python
+
+  live:
+    name: Live sandbox certificate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Fetch a fresh sandbox certificate and check it with both command lines
+        shell: bash
+        run: |
+          set -euo pipefail
+          # fetch <url> <file> [curl options]: HTTP 200 or the job fails. A 429 is a rate limit,
+          # not a result, so the live check is then skipped with a warning.
+          fetch() {
+            local status
+            status=$(curl -sS -o "$2" -w '%{http_code}' "${@:3}" "$1")
+            if [ "$status" = "429" ]; then
+              echo "::warning::$1 answered 429 (rate limit). The live check was skipped, not passed."
+              exit 0
+            fi
+            if [ "$status" != "200" ]; then
+              echo "$1 answered HTTP $status" >&2
+              exit 1
+            fi
+          }
+          BASE=https://www.apier.no
+          BEARER="Authorization: Bearer apier_sandbox_test_ci$(date +%s)$RANDOM"
+          fetch "$BASE/.well-known/sandbox-jwks.json" sandbox-jwks.json
+          fetch "$BASE/api/v1/sandbox/company/999000001/verify?certificate=true" verify.json -H "$BEARER"
+          fetch "$BASE/api/v1/sandbox/company/999000001/authority?certificate=true" authority.json -H "$BEARER"
+          sed 's/"verification_status":"pass"/"verification_status":"fail"/' verify.json > tampered.json
+          if cmp -s verify.json tampered.json; then
+            echo "the sandbox certificate no longer contains the field this job tampers with" >&2
+            exit 1
+          fi
+
+          # expect <exit code> <reason> <command...>
+          expect() {
+            local want_code="$1" want_reason="$2" code=0 out
+            shift 2
+            out=$("$@") || code=$?
+            echo "$out"
+            if [ "$code" != "$want_code" ] || ! grep -qx "reason: $want_reason" <<<"$out"; then
+              echo "expected exit $want_code and reason $want_reason from: $*" >&2
+              exit 1
+            fi
+          }
+          for cli in "node node/cli.mjs" "python python/apier_receipt_verify.py"; do
+            for certificate in verify.json authority.json; do
+              expect 0 none $cli "$certificate" --sandbox --jwks sandbox-jwks.json
+              expect 1 sandbox_not_allowed $cli "$certificate" --jwks sandbox-jwks.json
+            done
+            expect 1 signature_invalid $cli tampered.json --sandbox --jwks sandbox-jwks.json
+            # The command line fetching the key set itself.
+            expect 0 none $cli verify.json --sandbox
+          done
+      - name: Check the signed key history against the production key set
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The key history is a public document signed with the production RS256 key, so it gives
+          # both implementations a real production signature to check without any certificate.
+          for name in jwks signing-key-history; do
+            status=$(curl -sS -o "$name.json" -w '%{http_code}' "https://www.apier.no/.well-known/$name.json")
+            if [ "$status" = "429" ]; then
+              echo "::warning::$name.json answered 429 (rate limit). This check was skipped, not passed."
+              exit 0
+            fi
+            test "$status" = "200"
+          done
+          node --input-type=module -e "
+            import { readFileSync } from 'node:fs';
+            import { parseJsonStrict, verifyKeyHistory } from './node/verify.mjs';
+            const read = (file) => parseJsonStrict(readFileSync(file, 'utf8'));
+            if (!verifyKeyHistory(read('signing-key-history.json'), read('jwks.json'))) process.exit(1);
+            console.log('node: the key history signature checks against the production key set');
+          "
+          python -c "
+          import sys
+          sys.path.insert(0, 'python')
+          import apier_receipt_verify as v
+          read = lambda name: v.parse_json_strict(open(name, encoding='utf-8').read())
+          if not v.verify_key_history(read('signing-key-history.json'), read('jwks.json')):
+              sys.exit(1)
+          print('python: the key history signature checks against the production key set')
+          "

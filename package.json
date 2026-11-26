@@ -1,0 +1,27 @@
+{
+  "name": "apier-receipt-verify",
+  "version": "0.1.0",
+  "description": "Check Apier certificates offline against the public JWKS. Zero dependencies, Node and Python.",
+  "license": "MIT",
+  "author": "Grov Digital",
+  "homepage": "https://www.apier.no/docs/guides/verify-certificate",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/apier-no/apier-receipt-verify.git"
+  },
+  "type": "module",
+  "exports": "./node/verify.mjs",
+  "bin": {
+    "apier-receipt-verify": "node/cli.mjs"
+  },
+  "files": [
+    "node/",
+    "python/apier_receipt_verify.py"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}
